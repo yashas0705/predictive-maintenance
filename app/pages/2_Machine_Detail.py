@@ -25,6 +25,21 @@ machine_id = int(machine_row["id"])
 logs = pd.read_sql(
     "SELECT * FROM sensor_logs WHERE machine_id = ? ORDER BY timestamp", conn, params=(machine_id,)
 )
+numeric_cols = [
+    "risk_score",
+    "tool_wear",
+    "air_temp",
+    "process_temp",
+    "rpm",
+    "torque"
+]
+
+for col in numeric_cols:
+    if col in logs.columns:
+        logs[col] = pd.to_numeric(
+            logs[col],
+            errors="coerce"
+        )
 
 st.markdown(f"**Type:** {machine_row['machine_type']}  |  **Location:** {machine_row['location'] or '—'}  |  **Installed:** {machine_row['install_date']}")
 
