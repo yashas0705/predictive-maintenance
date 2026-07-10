@@ -83,13 +83,26 @@ with col_gauge:
         st.caption("No readings logged yet.")
     else:
         latest = logs.iloc[-1]
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
+
+risk = pd.to_numeric(latest["risk_score"], errors="coerce")
+
+if pd.isna(risk):
+    risk = 0
+
+fig = go.Figure(go.Indicator(
+    mode="gauge+number",
+    value=float(risk),
             value=latest["risk_score"],
             number={"suffix": "%"},
             gauge={
-                "axis": {"range": [0, 100]},
-                "bar": {"color": "#333"},
+    "axis":{"range":[0,100]},
+    "bar":{"color":"#1565C0"},
+    "steps":[
+        {"range":[0,15],"color":"#C8E6C9"},
+        {"range":[15,50],"color":"#FFE082"},
+        {"range":[50,100],"color":"#EF9A9A"}
+    ]
+}
                 "steps": [
                     {"range": [0, 15], "color": "#c8f0c8"},
                     {"range": [15, 50], "color": "#fff3b0"},
@@ -121,19 +134,47 @@ if len(logs) >= 2:
         fig = px.line(logs, x="timestamp", y=["air_temp", "process_temp"], markers=True,
                        title="Temperature Over Time", labels={"value": "Kelvin", "timestamp": "Time"})
         st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+    template="plotly_white",
+    paper_bgcolor="white",
+    plot_bgcolor="white"
+)
+
+fig.update_traces(line=dict(width=3))
 
         fig3 = px.line(logs, x="timestamp", y="tool_wear", markers=True,
                         title="Tool Wear Over Time", labels={"tool_wear": "Minutes"})
         fig3.add_hline(y=200, line_dash="dash", line_color="red", annotation_text="Wear failure threshold")
         st.plotly_chart(fig3, use_container_width=True)
+fig.update_layout(
+    template="plotly_white",
+    paper_bgcolor="white",
+    plot_bgcolor="white"
+)
+
+fig.update_traces(line=dict(width=3))
 
     with c2:
         fig2 = px.line(logs, x="timestamp", y=["rpm", "torque"], markers=True,
                         title="Speed & Torque Over Time")
         st.plotly_chart(fig2, use_container_width=True)
+        fig.update_layout(
+    template="plotly_white",
+    paper_bgcolor="white",
+    plot_bgcolor="white"
+)
+
+fig.update_traces(line=dict(width=3))
 
         fig4 = px.area(logs, x="timestamp", y="risk_score", title="Risk Score Trend",
                         labels={"risk_score": "Risk %"})
         st.plotly_chart(fig4, use_container_width=True)
+fig.update_layout(
+    template="plotly_white",
+    paper_bgcolor="white",
+    plot_bgcolor="white"
+)
+
+fig.update_traces(line=dict(width=3))
 else:
     st.info("Log at least 2 readings to see trend charts.")
