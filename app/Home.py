@@ -33,6 +33,21 @@ latest_logs = pd.read_sql(
 
 col_hi, col_med, col_lo, col_total = st.columns(4)
 merged = machines.merge(latest_logs, left_on="id", right_on="machine_id", how="left")
+numeric_cols = [
+    "risk_score",
+    "tool_wear",
+    "air_temp",
+    "process_temp",
+    "rpm",
+    "torque"
+]
+
+for col in numeric_cols:
+    if col in latest_logs.columns:
+        latest_logs[col] = pd.to_numeric(
+            latest_logs[col],
+            errors="coerce"
+        )
 
 def bucket_of(row):
     if pd.isna(row.get("risk_score")):
