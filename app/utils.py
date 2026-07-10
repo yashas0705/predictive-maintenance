@@ -82,15 +82,22 @@ def classify_failure_mode(machine_type, torque, tool_wear, process_temp, air_tem
 
 
 def days_to_failure(tool_wear, risk_score):
-    risk_score = pd.to_numeric(risk_score, errors="coerce")
-tool_wear = pd.to_numeric(tool_wear, errors="coerce")
 
-if pd.isna(risk_score) or pd.isna(tool_wear):
-    return None
-        return None  # low risk, no ETA needed
+    tool_wear = pd.to_numeric(tool_wear, errors="coerce")
+    risk_score = pd.to_numeric(risk_score, errors="coerce")
+
+    if pd.isna(tool_wear) or pd.isna(risk_score):
+        return None
+
+    if risk_score < 5:
+        return None
+
     wear_remaining = max(200 - tool_wear, 5)
-    daily_wear_rate = 1 + (risk_score / 100) * 3  # riskier machines assumed to wear faster
+
+    daily_wear_rate = 1 + (risk_score / 100) * 3
+
     eta = int(wear_remaining / daily_wear_rate)
+
     return max(eta, 1)
 
 
@@ -100,14 +107,9 @@ def risk_bucket(risk_score):
     risk_score = pd.to_numeric(risk_score, errors="coerce")
 
     if pd.isna(risk_score):
-        return ("Unknown", "#808080")
+        return "Unknown", "⚪"
 
     if risk_score < 15:
-        return ("Low", "#2ecc71")
-    elif risk_score < 40:
-        return ("Medium", "#f39c12")
-    else:
-        return ("High", "#e74c3c")
         return "Low", "🟢"
     elif risk_score < 50:
         return "Medium", "🟡"
