@@ -1,12 +1,16 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 
-from utils import ensure_setup, get_conn, load_model, predict_risk, days_to_failure, risk_bucket
+from utils import ensure_setup, get_conn, load_model, predict_risk, days_to_failure, risk_bucket, safe_num
 
 st.set_page_config(page_title="PredictAI | Fleet Overview", page_icon="🛠️", layout="wide")
 
 with st.spinner("Setting up (first run only — training model & loading demo data)..."):
     ensure_setup()
+
+THEME_COLORS = ["#5B47FB", "#FF6F91", "#00C2A8", "#FFB347"]
+BUCKET_COLORS = {"Low": "#00C2A8", "Medium": "#FFB347", "High": "#FF6F91", "No data": "#C9CDD6"}
 
 st.title("🛠️ PredictAI — Predictive Maintenance for Small Business")
 st.caption("Fleet health at a glance. Add machines, log readings, and catch failures before they happen.")
@@ -31,54 +35,63 @@ latest_logs = pd.read_sql(
     conn,
 )
 
-col_hi, col_med, col_lo, col_total = st.columns(4)
 merged = machines.merge(latest_logs, left_on="id", right_on="machine_id", how="left")
-numeric_cols = [
-    "risk_score",
-    "tool_wear",
-    "air_temp",
-    "process_temp",
-    "rpm",
-    "torque"
-]
+merged["risk_score_clean"] = merged["risk_score"].apply(lambda v: safe_num(v, default=None))
 
-for col in numeric_cols:
-    if col in latest_logs.columns:
-        latest_logs[col] = pd.to_numeric(
-            latest_logs[col],
-            errors="coerce"
-        )
 
 def bucket_of(row):
-    if pd.isna(row.get("risk_score")):
-        return "No data"
-    return risk_bucket(row["risk_score"])[0]
+    return risk_bucket(row["risk_score_clean"])[0]
+
 
 merged["bucket"] = merged.apply(bucket_of, axis=1)
 
+col_hi, col_med, col_lo, col_total = st.columns(4)
 col_total.metric("Total Machines", len(machines))
 col_hi.metric("🔴 High Risk", (merged["bucket"] == "High").sum())
 col_med.metric("🟡 Medium Risk", (merged["bucket"] == "Medium").sum())
 col_lo.metric("🟢 Low Risk", (merged["bucket"] == "Low").sum())
 
 st.divider()
-st.subheader("Machine Fleet")
 
-cols = st.columns(3)
-for i, row in merged.iterrows():
-    with cols[i % 3]:
-        with st.container(border=True):
-            st.markdown(f"**{row['name']}**  \n`{row['machine_type']}-type` · {row['location'] or 'No location'}")
-            if pd.isna(row.get("risk_score")):
-                st.caption("No sensor readings logged yet.")
-            else:
-                label, emoji = risk_bucket(row["risk_score"])
-                st.markdown(f"### {emoji} {row['risk_score']}% risk")
-                st.caption(f"Status: **{label}**")
-                eta = days_to_failure(row["tool_wear"], row["risk_score"])
-                if eta:
-                    st.caption(f"⏱️ Est. {eta} days to failure if untreated")
-            st.caption(f"Installed: {row['install_date']}")
+col_cards, col_chart = st.columns([2, 1])
+
+with col_cards:
+    st.subheader("Machine Fleet")
+    cols = st.columns(2)
+    for i, row in merged.iterrows():
+        with cols[i % 2]:
+            with st.container(border=True):
+                st.markdown(f"**{row['name']}**  \n`{row['machine_type']}-type` · {row['location'] or 'No location'}")
+                risk = row["risk_score_clean"]
+                if risk is None:
+                    st.caption("No sensor readings logged yet.")
+                else:
+                    label, emoji = risk_bucket(risk)
+                    st.markdown(f"### {emoji} {risk}% risk")
+                    st.caption(f"Status: **{label}**")
+                    eta = days_to_failure(row.get("tool_wear"), risk)
+                    if eta:
+                        st.caption(f"⏱️ Est. {eta} days to failure if untreated")
+                st.caption(f"Installed: {row['install_date']}")
+
+with col_chart:
+    st.subheader("Risk Distribution")
+    bucket_counts = merged["bucket"].value_counts().reindex(
+        ["Low", "Medium", "High", "No data"]
+    ).dropna()
+    if bucket_counts.sum() > 0:
+        fig = px.pie(
+            values=bucket_counts.values,
+            names=bucket_counts.index,
+            hole=0.45,
+            color=bucket_counts.index,
+            color_discrete_map=BUCKET_COLORS,
+        )
+        fig.update_traces(textinfo="percent+label", pull=[0.03] * len(bucket_counts))
+        fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=10, b=10), height=320)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.caption("No data to chart yet.")
 
 st.divider()
 st.caption("Built with AI4I 2020 dataset · XGBoost · Streamlit · SQLite")

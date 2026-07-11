@@ -81,34 +81,34 @@ def classify_failure_mode(machine_type, torque, tool_wear, process_temp, air_tem
     return "None"
 
 
+def safe_num(val, default=None):
+    """Coerce a possibly-corrupted DB value (None, NaN, stray string) to a float, or return default."""
+    try:
+        f = float(val)
+        if np.isnan(f):
+            return default
+        return f
+    except (TypeError, ValueError):
+        return default
+
+
 def days_to_failure(tool_wear, risk_score):
-
-    tool_wear = pd.to_numeric(tool_wear, errors="coerce")
-    risk_score = pd.to_numeric(risk_score, errors="coerce")
-
-    if pd.isna(tool_wear) or pd.isna(risk_score):
-        return None
-
+    """Simple heuristic ETA: higher tool wear + risk => fewer days left.
+    Tool wear failure threshold in AI4I is ~200-240 min; assume ~0.5-2 min/day of use."""
+    tool_wear = safe_num(tool_wear, default=0.0)
+    risk_score = safe_num(risk_score, default=0.0)
     if risk_score < 5:
-        return None
-
+        return None  # low risk, no ETA needed
     wear_remaining = max(200 - tool_wear, 5)
-
-    daily_wear_rate = 1 + (risk_score / 100) * 3
-
+    daily_wear_rate = 1 + (risk_score / 100) * 3  # riskier machines assumed to wear faster
     eta = int(wear_remaining / daily_wear_rate)
-
     return max(eta, 1)
 
 
-import pandas as pd
-
 def risk_bucket(risk_score):
-    risk_score = pd.to_numeric(risk_score, errors="coerce")
-
-    if pd.isna(risk_score):
-        return "Unknown", "⚪"
-
+    risk_score = safe_num(risk_score, default=None)
+    if risk_score is None:
+        return "No data", "⚪"
     if risk_score < 15:
         return "Low", "🟢"
     elif risk_score < 50:
@@ -121,10 +121,29 @@ def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _db_is_healthy():
+    """Check the DB is a valid SQLite file with sane numeric data (catches corruption
+    from binary files mangled by web-based git uploads)."""
+    try:
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT risk_score, tool_wear FROM sensor_logs LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return True  # empty table is fine, not corruption
+        float(row["risk_score"]) if row["risk_score"] is not None else 0.0
+        float(row["tool_wear"]) if row["tool_wear"] is not None else 0.0
+        return True
+    except Exception:
+        return False
+
+
 def ensure_setup():
     """First-run bootstrap for a fresh deploy (e.g. Streamlit Community Cloud):
-    trains the model if model.pkl is missing, and seeds demo data if the DB is empty.
-    Safe to call on every app start — it's a no-op once artifacts exist."""
+    trains the model if model.pkl is missing, seeds demo data if the DB is empty,
+    and rebuilds the DB from scratch if it's corrupted (e.g. a binary .db file
+    mangled by a web-based upload)."""
     import subprocess
     import sys
 
@@ -132,8 +151,10 @@ def ensure_setup():
     db_dir = os.path.join(BASE_DIR, "db")
 
     if not os.path.exists(MODEL_PATH) or not os.path.exists(ENCODER_PATH):
-        train_script = os.path.join(models_dir, "train_model.py")
         subprocess.run([sys.executable, "train_model.py"], cwd=models_dir, check=True)
+
+    if os.path.exists(DB_PATH) and not _db_is_healthy():
+        os.remove(DB_PATH)  # corrupted -> rebuild from scratch
 
     init_db()
 

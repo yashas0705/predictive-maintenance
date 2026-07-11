@@ -5,7 +5,7 @@ import plotly.express as px
 import numpy as np
 from datetime import datetime
 
-from utils import ensure_setup, get_conn, load_model, predict_risk, days_to_failure, risk_bucket, now_str, FAILURE_TYPES
+from utils import ensure_setup, get_conn, load_model, predict_risk, days_to_failure, risk_bucket, now_str, FAILURE_TYPES, safe_num
 
 st.set_page_config(page_title="Machine Detail", page_icon="📊", layout="wide")
 ensure_setup()
@@ -25,21 +25,9 @@ machine_id = int(machine_row["id"])
 logs = pd.read_sql(
     "SELECT * FROM sensor_logs WHERE machine_id = ? ORDER BY timestamp", conn, params=(machine_id,)
 )
-numeric_cols = [
-    "risk_score",
-    "tool_wear",
-    "air_temp",
-    "process_temp",
-    "rpm",
-    "torque"
-]
-
-for col in numeric_cols:
+for col in ["air_temp", "process_temp", "rpm", "torque", "tool_wear", "risk_score"]:
     if col in logs.columns:
-        logs[col] = pd.to_numeric(
-            logs[col],
-            errors="coerce"
-        )
+        logs[col] = pd.to_numeric(logs[col], errors="coerce")
 
 st.markdown(f"**Type:** {machine_row['machine_type']}  |  **Location:** {machine_row['location'] or '—'}  |  **Installed:** {machine_row['install_date']}")
 
@@ -83,30 +71,18 @@ with col_gauge:
         st.caption("No readings logged yet.")
     else:
         latest = logs.iloc[-1]
-
-risk = pd.to_numeric(latest["risk_score"], errors="coerce")
-
-if pd.isna(risk):
-    risk = 0
-
-fig = go.Figure(go.Indicator(
-    mode="gauge+number",
-    value=float(risk),
-            value=latest["risk_score"],
+        gauge_value = safe_num(latest["risk_score"], default=0.0)
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=gauge_value,
             number={"suffix": "%"},
             gauge={
-    "axis":{"range":[0,100]},
-    "bar":{"color":"#1565C0"},
-    "steps":[
-        {"range":[0,15],"color":"#C8E6C9"},
-        {"range":[15,50],"color":"#FFE082"},
-        {"range":[50,100],"color":"#EF9A9A"}
-    ]
-}
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "#5B47FB"},
                 "steps": [
-                    {"range": [0, 15], "color": "#c8f0c8"},
-                    {"range": [15, 50], "color": "#fff3b0"},
-                    {"range": [50, 100], "color": "#f7b2b2"},
+                    {"range": [0, 15], "color": "#d4f5dd"},
+                    {"range": [15, 50], "color": "#ffe9b3"},
+                    {"range": [50, 100], "color": "#ffd0d0"},
                 ],
             },
             title={"text": "Failure Risk"},
@@ -128,53 +104,28 @@ st.divider()
 if len(logs) >= 2:
     st.subheader("Sensor Trends")
     logs["timestamp"] = pd.to_datetime(logs["timestamp"])
+    THEME_COLORS = ["#5B47FB", "#FF6F91", "#00C2A8", "#FFB347"]
 
     c1, c2 = st.columns(2)
     with c1:
         fig = px.line(logs, x="timestamp", y=["air_temp", "process_temp"], markers=True,
-                       title="Temperature Over Time", labels={"value": "Kelvin", "timestamp": "Time"})
+                       title="Temperature Over Time", labels={"value": "Kelvin", "timestamp": "Time"},
+                       color_discrete_sequence=THEME_COLORS)
         st.plotly_chart(fig, use_container_width=True)
-        fig.update_layout(
-    template="plotly_white",
-    paper_bgcolor="white",
-    plot_bgcolor="white"
-)
-
-fig.update_traces(line=dict(width=3))
 
         fig3 = px.line(logs, x="timestamp", y="tool_wear", markers=True,
-                        title="Tool Wear Over Time", labels={"tool_wear": "Minutes"})
-        fig3.add_hline(y=200, line_dash="dash", line_color="red", annotation_text="Wear failure threshold")
+                        title="Tool Wear Over Time", labels={"tool_wear": "Minutes"},
+                        color_discrete_sequence=[THEME_COLORS[2]])
+        fig3.add_hline(y=200, line_dash="dash", line_color="#E63946", annotation_text="Wear failure threshold")
         st.plotly_chart(fig3, use_container_width=True)
-fig.update_layout(
-    template="plotly_white",
-    paper_bgcolor="white",
-    plot_bgcolor="white"
-)
-
-fig.update_traces(line=dict(width=3))
 
     with c2:
         fig2 = px.line(logs, x="timestamp", y=["rpm", "torque"], markers=True,
-                        title="Speed & Torque Over Time")
+                        title="Speed & Torque Over Time", color_discrete_sequence=THEME_COLORS[1:])
         st.plotly_chart(fig2, use_container_width=True)
-        fig.update_layout(
-    template="plotly_white",
-    paper_bgcolor="white",
-    plot_bgcolor="white"
-)
-
-fig.update_traces(line=dict(width=3))
 
         fig4 = px.area(logs, x="timestamp", y="risk_score", title="Risk Score Trend",
-                        labels={"risk_score": "Risk %"})
+                        labels={"risk_score": "Risk %"}, color_discrete_sequence=[THEME_COLORS[0]])
         st.plotly_chart(fig4, use_container_width=True)
-fig.update_layout(
-    template="plotly_white",
-    paper_bgcolor="white",
-    plot_bgcolor="white"
-)
-
-fig.update_traces(line=dict(width=3))
 else:
     st.info("Log at least 2 readings to see trend charts.")
