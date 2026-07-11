@@ -56,7 +56,7 @@ def predict_risk(model, encoder, machine_type, air_temp, process_temp, rpm, torq
         columns=["type_enc", "air_temp", "process_temp", "rpm", "torque", "tool_wear"],
     )
     proba = model.predict_proba(X)[0][1]
-    risk_score = round(proba * 100, 1)
+    risk_score = float(round(proba * 100, 1))
 
     # heuristic sub-type attribution based on AI4I's known physical failure rules
     likely_type = classify_failure_mode(machine_type, torque, tool_wear, process_temp, air_temp, rpm)
